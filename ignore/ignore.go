@@ -20,9 +20,8 @@ import (
 type Patterns []*regexp.Regexp
 
 func Load(file string) (Patterns, error) {
-	base := filepath.Dir(file)
 	seen := make(map[string]bool)
-	return loadIgnoreFile(file, base, seen)
+	return loadIgnoreFile(file, seen)
 }
 
 func (l Patterns) Match(file string) bool {
@@ -34,8 +33,7 @@ func (l Patterns) Match(file string) bool {
 	return false
 }
 
-func loadIgnoreFile(file, base string, seen map[string]bool) (Patterns, error) {
-
+func loadIgnoreFile(file string, seen map[string]bool) (Patterns, error) {
 	if seen[file] {
 		return nil, fmt.Errorf("Multiple include of ignore file %q", file)
 	}
@@ -47,10 +45,10 @@ func loadIgnoreFile(file, base string, seen map[string]bool) (Patterns, error) {
 	}
 	defer fd.Close()
 
-	return parseIgnoreFile(fd, base, file, seen)
+	return parseIgnoreFile(fd, file, seen)
 }
 
-func parseIgnoreFile(fd io.Reader, base, currentFile string, seen map[string]bool) (Patterns, error) {
+func parseIgnoreFile(fd io.Reader, currentFile string, seen map[string]bool) (Patterns, error) {
 	var exps Patterns
 	scanner := bufio.NewScanner(fd)
 	for scanner.Scan() {
@@ -61,7 +59,7 @@ func parseIgnoreFile(fd io.Reader, base, currentFile string, seen map[string]boo
 
 		if strings.HasPrefix(line, "/") {
 			// Pattern is rooted in the current dir only
-			exp, err := fnmatch.Convert(path.Join(base, line[1:]), fnmatch.FNM_PATHNAME)
+			exp, err := fnmatch.Convert(line[1:], fnmatch.FNM_PATHNAME)
 			if err != nil {
 				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
@@ -74,14 +72,14 @@ func parseIgnoreFile(fd io.Reader, base, currentFile string, seen map[string]boo
 			}
 			exps = append(exps, exp)
 
-			exp, err = fnmatch.Convert(path.Join(base, line[3:]), fnmatch.FNM_PATHNAME)
+			exp, err = fnmatch.Convert(line[3:], fnmatch.FNM_PATHNAME)
 			if err != nil {
 				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 		} else if strings.HasPrefix(line, "#include ") {
 			includeFile := filepath.Join(filepath.Dir(currentFile), line[len("#include "):])
-			includes, err := loadIgnoreFile(includeFile, base, seen)
+			includes, err := loadIgnoreFile(includeFile, seen)
 			if err != nil {
 				return nil, err
 			} else {
@@ -90,13 +88,13 @@ func parseIgnoreFile(fd io.Reader, base, currentFile string, seen map[string]boo
 		} else {
 			// Path name or pattern, add it so it matches files both in
 			// current directory and subdirs.
-			exp, err := fnmatch.Convert(path.Join(base, line), fnmatch.FNM_PATHNAME)
+			exp, err := fnmatch.Convert(line, fnmatch.FNM_PATHNAME)
 			if err != nil {
 				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 
-			exp, err = fnmatch.Convert(path.Join(base, "**", line), fnmatch.FNM_PATHNAME)
+			exp, err = fnmatch.Convert(path.Join("**", line), fnmatch.FNM_PATHNAME)
 			if err != nil {
 				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
