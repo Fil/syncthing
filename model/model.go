@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +19,7 @@ import (
 	"github.com/syncthing/syncthing/config"
 	"github.com/syncthing/syncthing/events"
 	"github.com/syncthing/syncthing/files"
+	"github.com/syncthing/syncthing/ignore"
 	"github.com/syncthing/syncthing/lamport"
 	"github.com/syncthing/syncthing/protocol"
 	"github.com/syncthing/syncthing/scanner"
@@ -79,7 +79,7 @@ type Model struct {
 	repoNodes    map[string][]protocol.NodeID                       // repo -> nodeIDs
 	nodeRepos    map[protocol.NodeID][]string                       // nodeID -> repos
 	nodeStatRefs map[protocol.NodeID]*stats.NodeStatisticsReference // nodeID -> statsRef
-	repoIgnores  map[string][]*regexp.Regexp                        // repo -> list of ignore patterns
+	repoIgnores  map[string]ignore.Patterns                         // repo -> list of ignore patterns
 	rmut         sync.RWMutex                                       // protects the above
 
 	repoState        map[string]repoState // repo -> state
@@ -119,7 +119,7 @@ func NewModel(indexDir string, cfg *config.Configuration, nodeName, clientName, 
 		repoNodes:        make(map[string][]protocol.NodeID),
 		nodeRepos:        make(map[protocol.NodeID][]string),
 		nodeStatRefs:     make(map[protocol.NodeID]*stats.NodeStatisticsReference),
-		repoIgnores:      make(map[string][]*regexp.Regexp),
+		repoIgnores:      make(map[string]ignore.Patterns),
 		repoState:        make(map[string]repoState),
 		repoStateChanged: make(map[string]time.Time),
 		protoConn:        make(map[protocol.NodeID]protocol.Connection),
@@ -372,7 +372,7 @@ func (m *Model) Index(nodeID protocol.NodeID, repo string, fs []protocol.FileInf
 
 	for i := 0; i < len(fs); {
 		lamport.Default.Tick(fs[i].Version)
-		if shouldIgnore(ignores, fs[i].Name) {
+		if ignores.Match(fs[i].Name) {
 			fs[i] = fs[len(fs)-1]
 			fs = fs[:len(fs)-1]
 		} else {
@@ -413,7 +413,7 @@ func (m *Model) IndexUpdate(nodeID protocol.NodeID, repo string, fs []protocol.F
 
 	for i := 0; i < len(fs); {
 		lamport.Default.Tick(fs[i].Version)
-		if shouldIgnore(ignores, fs[i].Name) {
+		if ignores.Match(fs[i].Name) {
 			fs[i] = fs[len(fs)-1]
 			fs = fs[:len(fs)-1]
 		} else {
@@ -810,7 +810,7 @@ func (m *Model) ScanRepoSub(repo, sub string) error {
 	fs, ok := m.repoFiles[repo]
 	dir := m.repoCfgs[repo].Directory
 
-	ignores, _ := loadIgnoreFile(filepath.Join(dir, ".stignore"), dir, nil)
+	ignores, _ := ignore.Load(filepath.Join(dir, ".stignore"))
 	m.repoIgnores[repo] = ignores
 
 	w := &scanner.Walker{

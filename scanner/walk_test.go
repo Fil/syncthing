@@ -13,6 +13,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/syncthing/syncthing/ignore"
 	"github.com/syncthing/syncthing/protocol"
 )
 
@@ -47,11 +48,16 @@ func init() {
 }
 
 func TestWalkSub(t *testing.T) {
+	ignores, err := ignore.Load("testdata/.stignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	w := Walker{
-		Dir:        "testdata",
-		Sub:        "dir2",
-		BlockSize:  128 * 1024,
-		IgnoreFile: ".stignore",
+		Dir:       "testdata",
+		Sub:       "dir2",
+		BlockSize: 128 * 1024,
+		Ignores:   ignores,
 	}
 	fchan, err := w.Walk()
 	var files []protocol.FileInfo
@@ -77,10 +83,15 @@ func TestWalkSub(t *testing.T) {
 }
 
 func TestWalk(t *testing.T) {
+	ignores, err := ignore.Load("testdata/.stignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	w := Walker{
-		Dir:        "testdata",
-		BlockSize:  128 * 1024,
-		IgnoreFile: ".stignore",
+		Dir:       "testdata",
+		BlockSize: 128 * 1024,
+		Ignores:   ignores,
 	}
 
 	fchan, err := w.Walk()
@@ -102,9 +113,8 @@ func TestWalk(t *testing.T) {
 
 func TestWalkError(t *testing.T) {
 	w := Walker{
-		Dir:        "testdata-missing",
-		BlockSize:  128 * 1024,
-		IgnoreFile: ".stignore",
+		Dir:       "testdata-missing",
+		BlockSize: 128 * 1024,
 	}
 	_, err := w.Walk()
 
@@ -113,9 +123,8 @@ func TestWalkError(t *testing.T) {
 	}
 
 	w = Walker{
-		Dir:        "testdata/bar",
-		BlockSize:  128 * 1024,
-		IgnoreFile: ".stignore",
+		Dir:       "testdata/bar",
+		BlockSize: 128 * 1024,
 	}
 	_, err = w.Walk()
 
@@ -124,66 +133,66 @@ func TestWalkError(t *testing.T) {
 	}
 }
 
-func TestIgnore(t *testing.T) {
-	patStr := bytes.NewBufferString(`
-		t2
-		/t3
-		sub/dir/*
-		*/other/test
-		**/deep
-	`)
-	patterns := parseIgnoreFile(patStr, "", "", make(map[string]map[string]bool))
+// func TestIgnore(t *testing.T) {
+// 	patStr := bytes.NewBufferString(`
+// 		t2
+// 		/t3
+// 		sub/dir/*
+// 		*/other/test
+// 		**/deep
+// 	`)
+// 	patterns := parseIgnoreFile(patStr, "", "", make(map[string]map[string]bool))
 
-	patStr = bytes.NewBufferString(`
-		bar
-		z*
-		q[abc]x
-	`)
-	patterns = append(patterns, parseIgnoreFile(patStr, "foo", "", make(map[string]map[string]bool))...)
+// 	patStr = bytes.NewBufferString(`
+// 		bar
+// 		z*
+// 		q[abc]x
+// 	`)
+// 	patterns = append(patterns, parseIgnoreFile(patStr, "foo", "", make(map[string]map[string]bool))...)
 
-	patStr = bytes.NewBufferString(`
-		quux
-		.*
-	`)
-	patterns = append(patterns, parseIgnoreFile(patStr, "foo/baz", "", make(map[string]map[string]bool))...)
+// 	patStr = bytes.NewBufferString(`
+// 		quux
+// 		.*
+// 	`)
+// 	patterns = append(patterns, parseIgnoreFile(patStr, "foo/baz", "", make(map[string]map[string]bool))...)
 
-	var tests = []struct {
-		f string
-		r bool
-	}{
-		{filepath.Join("foo", "bar"), true},
-		{filepath.Join("t3"), true},
-		{filepath.Join("foofoo"), false},
-		{filepath.Join("foo", "quux"), false},
-		{filepath.Join("foo", "zuux"), true},
-		{filepath.Join("foo", "qzuux"), false},
-		{filepath.Join("foo", "baz", "t1"), false},
-		{filepath.Join("foo", "baz", "t2"), true},
-		{filepath.Join("foo", "baz", "t3"), false},
-		{filepath.Join("foo", "baz", "bar"), true},
-		{filepath.Join("foo", "baz", "quuxa"), false},
-		{filepath.Join("foo", "baz", "aquux"), false},
-		{filepath.Join("foo", "baz", ".quux"), true},
-		{filepath.Join("foo", "baz", "zquux"), true},
-		{filepath.Join("foo", "baz", "quux"), true},
-		{filepath.Join("foo", "bazz", "quux"), false},
-		{filepath.Join("sub", "dir", "hej"), true},
-		{filepath.Join("deeper", "sub", "dir", "hej"), true},
-		{filepath.Join("other", "test"), false},
-		{filepath.Join("sub", "other", "test"), true},
-		{filepath.Join("deeper", "sub", "other", "test"), true},
-		{filepath.Join("deep"), true},
-		{filepath.Join("deeper", "deep"), true},
-		{filepath.Join("deeper", "deeper", "deep"), true},
-	}
+// 	var tests = []struct {
+// 		f string
+// 		r bool
+// 	}{
+// 		{filepath.Join("foo", "bar"), true},
+// 		{filepath.Join("t3"), true},
+// 		{filepath.Join("foofoo"), false},
+// 		{filepath.Join("foo", "quux"), false},
+// 		{filepath.Join("foo", "zuux"), true},
+// 		{filepath.Join("foo", "qzuux"), false},
+// 		{filepath.Join("foo", "baz", "t1"), false},
+// 		{filepath.Join("foo", "baz", "t2"), true},
+// 		{filepath.Join("foo", "baz", "t3"), false},
+// 		{filepath.Join("foo", "baz", "bar"), true},
+// 		{filepath.Join("foo", "baz", "quuxa"), false},
+// 		{filepath.Join("foo", "baz", "aquux"), false},
+// 		{filepath.Join("foo", "baz", ".quux"), true},
+// 		{filepath.Join("foo", "baz", "zquux"), true},
+// 		{filepath.Join("foo", "baz", "quux"), true},
+// 		{filepath.Join("foo", "bazz", "quux"), false},
+// 		{filepath.Join("sub", "dir", "hej"), true},
+// 		{filepath.Join("deeper", "sub", "dir", "hej"), true},
+// 		{filepath.Join("other", "test"), false},
+// 		{filepath.Join("sub", "other", "test"), true},
+// 		{filepath.Join("deeper", "sub", "other", "test"), true},
+// 		{filepath.Join("deep"), true},
+// 		{filepath.Join("deeper", "deep"), true},
+// 		{filepath.Join("deeper", "deeper", "deep"), true},
+// 	}
 
-	w := Walker{}
-	for i, tc := range tests {
-		if r := w.ignoreFile(patterns, tc.f); r != tc.r {
-			t.Errorf("Incorrect ignoreFile() #%d (%s); E: %v, A: %v", i, tc.f, tc.r, r)
-		}
-	}
-}
+// 	w := Walker{}
+// 	for i, tc := range tests {
+// 		if r := w.ignoreFile(patterns, tc.f); r != tc.r {
+// 			t.Errorf("Incorrect ignoreFile() #%d (%s); E: %v, A: %v", i, tc.f, tc.r, r)
+// 		}
+// 	}
+// }
 
 type fileList []protocol.FileInfo
 

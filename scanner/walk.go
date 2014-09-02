@@ -8,11 +8,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 
 	"code.google.com/p/go.text/unicode/norm"
 
+	"github.com/syncthing/syncthing/ignore"
 	"github.com/syncthing/syncthing/lamport"
 	"github.com/syncthing/syncthing/protocol"
 )
@@ -25,7 +25,7 @@ type Walker struct {
 	// BlockSize controls the size of the block used when hashing.
 	BlockSize int
 	// List of patterns to ignore
-	Ignores []*regexp.Regexp
+	Ignores ignore.Patterns
 	// If TempNamer is not nil, it is used to ignore tempory files when walking.
 	TempNamer TempNamer
 	// If CurrentFiler is not nil, it is queried for the current file before rescanning.
@@ -107,7 +107,7 @@ func (w *Walker) walkAndHashFiles(fchan chan protocol.FileInfo) filepath.WalkFun
 			return nil
 		}
 
-		if sn := filepath.Base(rn); sn == ".stignore" || sn == ".stversions" || w.ignoreFile(rn) {
+		if sn := filepath.Base(rn); sn == ".stignore" || sn == ".stversions" || w.Ignores.Match(rn) {
 			// An ignored file
 			if debug {
 				l.Debugln("ignored:", rn)
@@ -189,18 +189,6 @@ func (w *Walker) cleanTempFile(path string, info os.FileInfo, err error) error {
 		os.Remove(path)
 	}
 	return nil
-}
-
-func (w *Walker) ignoreFile(file string) bool {
-	for _, pattern := range w.Ignores {
-		if pattern.MatchString(file) {
-			if debug {
-				l.Debugf("%q matches %v", file, pattern)
-			}
-			return true
-		}
-	}
-	return false
 }
 
 func checkDir(dir string) error {
