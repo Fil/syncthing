@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,6 +79,7 @@ type Model struct {
 	repoNodes    map[string][]protocol.NodeID                       // repo -> nodeIDs
 	nodeRepos    map[protocol.NodeID][]string                       // nodeID -> repos
 	nodeStatRefs map[protocol.NodeID]*stats.NodeStatisticsReference // nodeID -> statsRef
+	repoIgnores  map[string][]*regexp.Regexp                        // repo -> list of ignore patterns
 	rmut         sync.RWMutex                                       // protects the above
 
 	repoState        map[string]repoState // repo -> state
@@ -117,6 +119,7 @@ func NewModel(indexDir string, cfg *config.Configuration, nodeName, clientName, 
 		repoNodes:        make(map[string][]protocol.NodeID),
 		nodeRepos:        make(map[protocol.NodeID][]string),
 		nodeStatRefs:     make(map[protocol.NodeID]*stats.NodeStatisticsReference),
+		repoIgnores:      make(map[string][]*regexp.Regexp),
 		repoState:        make(map[string]repoState),
 		repoStateChanged: make(map[string]time.Time),
 		protoConn:        make(map[protocol.NodeID]protocol.Connection),
@@ -358,24 +361,32 @@ func (m *Model) Index(nodeID protocol.NodeID, repo string, fs []protocol.FileInf
 		return
 	}
 
-	for i := range fs {
-		lamport.Default.Tick(fs[i].Version)
-	}
-
 	m.rmut.RLock()
-	r, ok := m.repoFiles[repo]
+	files, ok := m.repoFiles[repo]
+	ignores, _ := m.repoIgnores[repo]
 	m.rmut.RUnlock()
-	if ok {
-		r.Replace(nodeID, fs)
-	} else {
+
+	if !ok {
 		l.Fatalf("Index for nonexistant repo %q", repo)
 	}
+
+	for i := 0; i < len(fs); {
+		lamport.Default.Tick(fs[i].Version)
+		if shouldIgnore(ignores, fs[i].Name) {
+			fs[i] = fs[len(fs)-1]
+			fs = fs[:len(fs)-1]
+		} else {
+			i++
+		}
+	}
+
+	files.Replace(nodeID, fs)
 
 	events.Default.Log(events.RemoteIndexUpdated, map[string]interface{}{
 		"node":    nodeID.String(),
 		"repo":    repo,
 		"items":   len(fs),
-		"version": r.LocalVersion(nodeID),
+		"version": files.LocalVersion(nodeID),
 	})
 }
 
@@ -391,24 +402,32 @@ func (m *Model) IndexUpdate(nodeID protocol.NodeID, repo string, fs []protocol.F
 		return
 	}
 
-	for i := range fs {
-		lamport.Default.Tick(fs[i].Version)
-	}
-
 	m.rmut.RLock()
-	r, ok := m.repoFiles[repo]
+	files, ok := m.repoFiles[repo]
+	ignores, _ := m.repoIgnores[repo]
 	m.rmut.RUnlock()
-	if ok {
-		r.Update(nodeID, fs)
-	} else {
+
+	if !ok {
 		l.Fatalf("IndexUpdate for nonexistant repo %q", repo)
 	}
+
+	for i := 0; i < len(fs); {
+		lamport.Default.Tick(fs[i].Version)
+		if shouldIgnore(ignores, fs[i].Name) {
+			fs[i] = fs[len(fs)-1]
+			fs = fs[:len(fs)-1]
+		} else {
+			i++
+		}
+	}
+
+	files.Update(nodeID, fs)
 
 	events.Default.Log(events.RemoteIndexUpdated, map[string]interface{}{
 		"node":    nodeID.String(),
 		"repo":    repo,
 		"items":   len(fs),
-		"version": r.LocalVersion(nodeID),
+		"version": files.LocalVersion(nodeID),
 	})
 }
 
@@ -791,10 +810,13 @@ func (m *Model) ScanRepoSub(repo, sub string) error {
 	fs, ok := m.repoFiles[repo]
 	dir := m.repoCfgs[repo].Directory
 
+	ignores, _ := loadIgnoreFile(filepath.Join(dir, ".stignore"), dir, nil)
+	m.repoIgnores[repo] = ignores
+
 	w := &scanner.Walker{
 		Dir:          dir,
 		Sub:          sub,
-		IgnoreFile:   ".stignore",
+		Ignores:      ignores,
 		BlockSize:    scanner.StandardBlockSize,
 		TempNamer:    defTempNamer,
 		CurrentFiler: cFiler{m, repo},
@@ -938,6 +960,7 @@ func (m *Model) Override(repo string) {
 	fs := m.repoFiles[repo]
 	m.rmut.RUnlock()
 
+	m.setState(repo, RepoScanning)
 	batch := make([]protocol.FileInfo, 0, indexBatchSize)
 	fs.WithNeed(protocol.LocalNodeID, func(fi protocol.FileIntf) bool {
 		need := fi.(protocol.FileInfo)
@@ -963,6 +986,7 @@ func (m *Model) Override(repo string) {
 	if len(batch) > 0 {
 		fs.Update(protocol.LocalNodeID, batch)
 	}
+	m.setState(repo, RepoIdle)
 }
 
 // Version returns the change version for the given repository. This is

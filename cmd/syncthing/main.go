@@ -13,8 +13,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -138,9 +136,6 @@ The following enviroment variables are interpreted by syncthing:
                - "all"      (all of the above)
 
  STGUIASSETS   Directory to load GUI assets from. Overrides compiled in assets.
-
- STPROFILER    Set to a listen address such as "127.0.0.1:9090" to start the
-               profiler with HTTP access.
 
  STCPUPROFILE  Write a CPU profile to cpu-$pid.pprof on exit.
 
@@ -363,17 +358,6 @@ func syncthingMain() {
 
 		saveConfig()
 		l.Infof("Edit %s to taste or use the GUI\n", cfgFile)
-	}
-
-	if profiler := os.Getenv("STPROFILER"); len(profiler) > 0 {
-		go func() {
-			l.Debugln("Starting profiler on", profiler)
-			runtime.SetBlockProfileRate(1)
-			err := http.ListenAndServe(profiler, nil)
-			if err != nil {
-				l.Fatalln(err)
-			}
-		}()
 	}
 
 	// The TLS configuration is used for both the listening socket and outgoing
