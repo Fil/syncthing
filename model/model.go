@@ -601,7 +601,7 @@ func (m *Model) AddConnection(rawConn io.Closer, protoConn protocol.Connection) 
 	m.rmut.RLock()
 	for _, repo := range m.nodeRepos[nodeID] {
 		fs := m.repoFiles[repo]
-		go sendIndexes(protoConn, repo, fs)
+		go sendIndexes(protoConn, repo, fs, m.repoIgnores[repo])
 	}
 	if statRef, ok := m.nodeStatRefs[nodeID]; ok {
 		statRef.WasSeen()
@@ -612,7 +612,7 @@ func (m *Model) AddConnection(rawConn io.Closer, protoConn protocol.Connection) 
 	m.pmut.Unlock()
 }
 
-func sendIndexes(conn protocol.Connection, repo string, fs *files.Set) {
+func sendIndexes(conn protocol.Connection, repo string, fs *files.Set, ignores ignore.Patterns) {
 	nodeID := conn.ID()
 	name := conn.Name()
 	var err error
@@ -627,7 +627,7 @@ func sendIndexes(conn protocol.Connection, repo string, fs *files.Set) {
 		}
 	}()
 
-	minLocalVer, err := sendIndexTo(true, 0, conn, repo, fs)
+	minLocalVer, err := sendIndexTo(true, 0, conn, repo, fs, ignores)
 
 	for err == nil {
 		time.Sleep(5 * time.Second)
@@ -635,11 +635,11 @@ func sendIndexes(conn protocol.Connection, repo string, fs *files.Set) {
 			continue
 		}
 
-		minLocalVer, err = sendIndexTo(false, minLocalVer, conn, repo, fs)
+		minLocalVer, err = sendIndexTo(false, minLocalVer, conn, repo, fs, ignores)
 	}
 }
 
-func sendIndexTo(initial bool, minLocalVer uint64, conn protocol.Connection, repo string, fs *files.Set) (uint64, error) {
+func sendIndexTo(initial bool, minLocalVer uint64, conn protocol.Connection, repo string, fs *files.Set, ignores ignore.Patterns) (uint64, error) {
 	nodeID := conn.ID()
 	name := conn.Name()
 	batch := make([]protocol.FileInfo, 0, indexBatchSize)
@@ -655,6 +655,10 @@ func sendIndexTo(initial bool, minLocalVer uint64, conn protocol.Connection, rep
 
 		if f.LocalVersion > maxLocalVer {
 			maxLocalVer = f.LocalVersion
+		}
+
+		if ignores.Match(f.Name) {
+			return true
 		}
 
 		if len(batch) == indexBatchSize || currentBatchSize > indexTargetSize {

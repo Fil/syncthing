@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -57,38 +56,33 @@ func loadIgnoreFile(file string, seen map[string]bool) (Patterns, error) {
 
 func parseIgnoreFile(fd io.Reader, currentFile string, seen map[string]bool) (Patterns, error) {
 	var exps Patterns
-	scanner := bufio.NewScanner(fd)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
 
+	addPattern := func(line string) error {
 		if strings.HasPrefix(line, "/") {
 			// Pattern is rooted in the current dir only
 			exp, err := fnmatch.Convert(line[1:], fnmatch.FNM_PATHNAME)
 			if err != nil {
-				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
+				return fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 		} else if strings.HasPrefix(line, "**/") {
 			// Add the pattern as is, and without **/ so it matches in current dir
 			exp, err := fnmatch.Convert(line, fnmatch.FNM_PATHNAME)
 			if err != nil {
-				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
+				return fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 
 			exp, err = fnmatch.Convert(line[3:], fnmatch.FNM_PATHNAME)
 			if err != nil {
-				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
+				return fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 		} else if strings.HasPrefix(line, "#include ") {
 			includeFile := filepath.Join(filepath.Dir(currentFile), line[len("#include "):])
 			includes, err := loadIgnoreFile(includeFile, seen)
 			if err != nil {
-				return nil, err
+				return err
 			} else {
 				exps = append(exps, includes...)
 			}
@@ -97,15 +91,43 @@ func parseIgnoreFile(fd io.Reader, currentFile string, seen map[string]bool) (Pa
 			// current directory and subdirs.
 			exp, err := fnmatch.Convert(line, fnmatch.FNM_PATHNAME)
 			if err != nil {
-				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
+				return fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
 
-			exp, err = fnmatch.Convert(path.Join("**", line), fnmatch.FNM_PATHNAME)
+			exp, err = fnmatch.Convert("**/"+line, fnmatch.FNM_PATHNAME)
 			if err != nil {
-				return nil, fmt.Errorf("Invalid pattern %q in ignore file", line)
+				return fmt.Errorf("Invalid pattern %q in ignore file", line)
 			}
 			exps = append(exps, exp)
+		}
+		return nil
+	}
+
+	scanner := bufio.NewScanner(fd)
+	var err error
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch {
+		case line == "":
+			continue
+		case strings.HasPrefix(line, "#"):
+			err = addPattern(line)
+		case strings.HasSuffix(line, "/**"):
+			err = addPattern(line)
+		case strings.HasSuffix(line, "/"):
+			err = addPattern(line)
+			if err == nil {
+				err = addPattern(line + "**")
+			}
+		default:
+			err = addPattern(line)
+			if err == nil {
+				err = addPattern(line + "/**")
+			}
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 

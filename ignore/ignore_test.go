@@ -38,7 +38,7 @@ func TestIgnore(t *testing.T) {
 		{filepath.Join("dir2", "ffile"), false},
 
 		{filepath.Join("dir3"), true},
-		{filepath.Join("dir3", "afile"), false},
+		{filepath.Join("dir3", "afile"), true},
 	}
 
 	for i, tc := range tests {
