@@ -24,6 +24,13 @@ func Load(file string) (Patterns, error) {
 	return loadIgnoreFile(file, seen)
 }
 
+func Parse(r io.Reader, file string) (Patterns, error) {
+	seen := map[string]bool{
+		file: true,
+	}
+	return parseIgnoreFile(r, file, seen)
+}
+
 func (l Patterns) Match(file string) bool {
 	for _, pattern := range l {
 		if pattern.MatchString(file) {
