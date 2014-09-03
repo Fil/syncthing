@@ -863,15 +863,40 @@ func (m *Model) ScanRepoSub(repo, sub string) error {
 	fs.WithHaveTruncated(protocol.LocalNodeID, func(fi protocol.FileIntf) bool {
 		f := fi.(protocol.FileInfoTruncated)
 		if !strings.HasPrefix(f.Name, sub) {
+			// Return true so that we keep iterating, until we get to the part
+			// of the tree we are interested in. Then return false so we stop
+			// iterating when we've passed the end of the subtree.
 			return !seenPrefix
 		}
+
 		seenPrefix = true
 		if !protocol.IsDeleted(f.Flags) {
+			if f.IsInvalid() {
+				return true
+			}
+
 			if len(batch) == batchSize {
 				fs.Update(protocol.LocalNodeID, batch)
 				batch = batch[:0]
 			}
-			if _, err := os.Stat(filepath.Join(dir, f.Name)); err != nil && os.IsNotExist(err) {
+
+			if ignores.Match(f.Name) {
+				// File has been ignored. Set invalid bit.
+				nf := protocol.FileInfo{
+					Name:     f.Name,
+					Flags:    f.Flags | protocol.FlagInvalid,
+					Modified: f.Modified,
+					Version:  lamport.Default.Tick(f.Version),
+				}
+				events.Default.Log(events.LocalIndexUpdated, map[string]interface{}{
+					"repo":     repo,
+					"name":     f.Name,
+					"modified": time.Unix(f.Modified, 0),
+					"flags":    fmt.Sprintf("0%o", f.Flags),
+					"size":     f.Size(),
+				})
+				batch = append(batch, nf)
+			} else if _, err := os.Stat(filepath.Join(dir, f.Name)); err != nil && os.IsNotExist(err) {
 				// File has been deleted
 				nf := protocol.FileInfo{
 					Name:     f.Name,
